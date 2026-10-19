@@ -33,13 +33,30 @@
   ];
   var TITLES = {
     dashboard: ['仪表盘', '授权机制运行态势总览'],
-    generator: ['授权码生成', '按原版算法由 UDID 离线派生授权码'],
-    verifier: ['授权码验证', '归一化比对，实时判定授权码有效性'],
+    generator: ['授权码生成', '按原版算法由 UDID 离线派生授权码 · 数据段长度可自定义'],
+    verifier: ['授权码验证', '归一化比对 + 长度自适应，实时判定授权码有效性'],
     records: ['授权记录', '生成与验证操作审计日志'],
     users: ['用户管理', '平台账号与角色权限'],
     docs: ['机制文档', 'MUtool 2.2.18 授权机制逆向分析整理'],
     settings: ['个人设置', '账号信息与密码管理']
   };
+
+  /* 按当前长度生成格式示例（如 MUZI-MUTOOL-AAAA-BBBB-CCCC-DDDD） */
+  function formatSample(len, prefix, product) {
+    len = Keygen.clampLen(len);
+    prefix = (prefix || Keygen.DEFAULTS.prefix).trim().toUpperCase() || Keygen.DEFAULTS.prefix;
+    product = (product || Keygen.DEFAULTS.product).trim().toUpperCase() || Keygen.DEFAULTS.product;
+    var groups = [], gi = 0;
+    for (var i = 0; i < len; i += 4) {
+      var letter = String.fromCharCode(65 + (gi % 26));
+      var size = Math.min(4, len - i);
+      var g = '';
+      for (var j = 0; j < size; j++) g += letter;
+      groups.push(g);
+      gi++;
+    }
+    return prefix + '-' + product + '-' + groups.join('-');
+  }
 
   function renderNav() {
     var html = '';
@@ -133,11 +150,12 @@
   }
 
   function pipelineHtml(r) {
+    var groups = Math.ceil(r.len / 4);
     return '<div class="pipeline">' +
       pipeStep(1, 'HMAC 数据串', 'bundle|udid', r.data) +
       pipeStep(2, 'HMAC-SHA256', 'Key = ' + escapeHtml(Keygen.KEY), r.hex64) +
-      pipeStep(3, '截取前 16 字符', 'substringToIndex:16', r.body16) +
-      pipeStep(4, '按 4 字分 4 组', 'AAAA-BBBB-CCCC-DDDD', r.grouped) +
+      pipeStep(3, '截取前 ' + r.len + ' 字符', 'substringToIndex:' + r.len, r.body) +
+      pipeStep(4, '按 4 字分 ' + groups + ' 组', groups === 4 ? 'AAAA-BBBB-CCCC-DDDD' : r.len + ' 位 / ' + groups + ' 组', r.grouped) +
       pipeStep(5, '拼接最终格式', 'MUZI-&lt;product&gt;-&lt;grouped&gt;', r.code, true) +
       '</div>';
   }
@@ -153,11 +171,15 @@
     Store.addLog({ type: 'gen', udid: r.udid, code: r.code, result: 'ok', operator: u.username });
   }
 
-  /* 全局复制按钮委托 */
+  /* 全局复制按钮委托 + 长度弹层点击外部关闭 */
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-copy]');
-    if (!btn) return;
-    UI.copyText(btn.dataset.copy, function () { UI.toast('已复制：' + btn.dataset.copy, 'ok'); });
+    if (btn) {
+      UI.copyText(btn.dataset.copy, function () { UI.toast('已复制：' + btn.dataset.copy, 'ok'); });
+      return;
+    }
+    var pop = document.getElementById('g-len-pop');
+    if (pop && pop.style.display !== 'none' && !e.target.closest('.len-wrap')) pop.style.display = 'none';
   });
 
   /* ============================================================
@@ -231,12 +253,119 @@
      授权码生成
      ============================================================ */
   PAGES.generator = function () {
-    var lastR = null, lastNote = '';
+    var lastR = null, lastNote = '', lastSaved = false;
+
+    function curOpts() {
+      return { bundle: $('#g-bundle').value, product: $('#g-product').value, prefix: $('#g-prefix').value };
+    }
+
+    /* 刷新长度相关 UI：徽标 / 快捷 chips / 自定义输入 / 格式预览 / 页头流水线说明 */
+    function refreshLenUI() {
+      var len = Keygen.getLen();
+      var groups = Math.ceil(len / 4);
+      var o = curOpts();
+      var badge = $('#g-len-badge');
+      if (badge) badge.textContent = len + ' 位';
+      $$('#g-len-chips .chip').forEach(function (c) {
+        c.classList.toggle('active', parseInt(c.dataset.len, 10) === len);
+      });
+      var custom = $('#g-len-custom');
+      if (custom && document.activeElement !== custom) custom.value = len;
+      var preview = $('#g-len-preview');
+      if (preview) preview.textContent = formatSample(len, o.prefix, o.product);
+      var desc = $('#g-pipe-desc');
+      if (desc) {
+        desc.innerHTML = '流水线：HMAC-SHA256(Key, BundleID|UDID) → 大写十六进制 → 前 <b>' + len + '</b> 字符 → 按 4 字分 <b>' + groups + '</b> 组 → ' +
+          escapeHtml(formatSample(len, o.prefix, o.product)) +
+          (len === 16 ? '（原版固定格式）' : ' <span style="color:var(--warning)">（自定义长度，仅本平台验证通用）</span>');
+      }
+      var hint = $('#b-len-hint');
+      if (hint) hint.textContent = len + ' 位（' + groups + ' 组）';
+    }
+
+    /* 应用新长度：持久化 + 刷新 UI + 已有结果时按新长度即时重算展示（不重复入库） */
+    function applyLen(n) {
+      n = Keygen.setLen(n);
+      refreshLenUI();
+      if (lastR && $('#g-udid').value.trim()) runGenerate(false, true);
+      UI.toast('授权码数据段长度已设为 ' + n + ' 位（' + Math.ceil(n / 4) + ' 组）', 'ok');
+    }
+
+    function renderResult(saved) {
+      var groups = Math.ceil(lastR.len / 4);
+      $('#g-result').innerHTML =
+        '<div class="card result-card card-pad">' +
+        '<div class="card-title">生成结果 <span class="sub" id="g-save-state">' + (saved ? '已保存到授权记录' : '未保存') + '</span></div>' +
+        codeDisplayHtml(lastR.code) +
+        '<div style="font-size:12px;color:var(--text-3);margin:10px 0 14px">数据段 ' + lastR.len + ' 位十六进制（' + (lastR.len * 4) + ' bit）· ' + groups + ' 组 · 绑定 UDID <span class="cell-mono">' + escapeHtml(lastR.udid) + '</span>' +
+        (lastR.len !== 16 ? ' · <span style="color:var(--warning)">自定义长度，原版客户端不识别</span>' : '') + '</div>' +
+        pipelineHtml(lastR) +
+        (saved ? '' : '<div style="margin-top:14px"><button class="btn btn-default" id="g-save">保存到授权记录</button></div>') +
+        '</div>';
+      if (!saved) {
+        $('#g-save').onclick = function () {
+          saveGenEntry(lastR, lastNote);
+          lastSaved = true;
+          $('#g-save-state').textContent = '已保存到授权记录';
+          $('#g-save').remove();
+          UI.toast('已保存到授权记录', 'ok');
+        };
+      }
+    }
+
+    /* isRefresh = true 表示由长度变化触发的重算：不重复保存，保持原保存状态 */
+    function runGenerate(autoSave, isRefresh) {
+      var input = $('#g-udid');
+      var field = input.closest('.field');
+      field.classList.remove('has-error');
+      var udid = input.value.trim();
+      if (!udid) {
+        if (!isRefresh) {
+          field.classList.add('has-error');
+          field.querySelector('.field-error').textContent = '请输入 UDID';
+        }
+        return;
+      }
+      lastR = Keygen.compute(udid, curOpts());
+      lastNote = $('#g-note').value.trim();
+      var saved;
+      if (isRefresh) {
+        saved = lastSaved;
+      } else {
+        lastSaved = false;
+        saved = autoSave;
+        if (saved) { saveGenEntry(lastR, lastNote); lastSaved = true; }
+      }
+      renderResult(saved);
+    }
 
     $('#content').innerHTML =
-      '<div class="page-head"><h2>授权码生成</h2><p>流水线：HMAC-SHA256(Key, BundleID|UDID) → 大写十六进制 → 前 16 字符 → 按 4 字分 4 组 → MUZI-&lt;产品&gt;-AAAA-BBBB-CCCC-DDDD。</p></div>' +
+      '<div class="page-head"><h2>授权码生成</h2><p id="g-pipe-desc"></p></div>' +
       '<div class="card card-pad">' +
-      '<div class="tabs"><button class="active" data-tab="single">单个生成</button><button data-tab="batch">批量生成</button></div>' +
+      '<div class="tabs"><button class="active" data-tab="single">单个生成</button><button data-tab="batch">批量生成</button>' +
+      '<div class="t-spacer"></div>' +
+      '<div class="len-wrap">' +
+      '<button type="button" class="tabs-gear" id="g-len-btn" title="授权码长度自定义">' + ICONS.settings + '<span class="len-badge" id="g-len-badge">16 位</span></button>' +
+      '<div class="popover" id="g-len-pop" style="display:none">' +
+      '<div class="pop-head"><div class="pop-title">授权码长度自定义</div><span class="pop-close" id="g-len-close" title="关闭">×</span></div>' +
+      '<div class="pop-sub">数据段取 HMAC-SHA256 大写十六进制（共 64 字符）的前 N 位，按 4 字分组；原版固定 16 位（4 组）。设置对单个 / 批量生成即时生效并保存。</div>' +
+      '<div class="chip-row" id="g-len-chips">' +
+      '<span class="chip" data-len="8">8 · 2 组</span>' +
+      '<span class="chip" data-len="12">12 · 3 组</span>' +
+      '<span class="chip" data-len="16">16 · 4 组（原版）</span>' +
+      '<span class="chip" data-len="20">20 · 5 组</span>' +
+      '<span class="chip" data-len="24">24 · 6 组</span>' +
+      '<span class="chip" data-len="32">32 · 8 组</span>' +
+      '</div>' +
+      '<div class="field pop-field"><label class="field-label">自定义长度（4–64 任意整数）</label>' +
+      '<input class="input mono" id="g-len-custom" type="number" min="4" max="64" step="1" value="16"></div>' +
+      '<div class="pop-preview"><span>格式预览</span><code id="g-len-preview"></code></div>' +
+      '<div class="pop-note">验证页按授权码<b>自身长度</b>自适应比对：任意长度生成的码均可正常验证，无需手动切换设置。</div>' +
+      '<div class="pop-note warn">注意：非 16 位码仅在本平台内自洽，原版 MUtool 客户端不识别。</div>' +
+      '<div class="pop-actions"><span class="btn-link" id="g-len-reset">恢复默认 16 位</span></div>' +
+      '</div>' +
+      '</div>' +
+      '</div>' +
 
       '<div id="tab-single">' +
       '<div class="grid grid-2">' +
@@ -263,59 +392,49 @@
       '<div id="tab-batch" style="display:none">' +
       '<div class="field"><label class="field-label">UDID 列表<span class="req">*</span></label>' +
       '<textarea class="input mono" id="b-udids" rows="6" placeholder="每行一个 UDID，例如：&#10;00008020-001A2C3E1E44801E&#10;00008110-000925561E80801E"></textarea>' +
-      '<div class="field-hint">单次最多 200 行；Bundle / 产品代号 / 前缀与左侧「单个生成」中的设置保持一致（修改后请切回单个页签查看当前值）。</div></div>' +
+      '<div class="field-hint">单次最多 200 行；Bundle / 产品代号 / 前缀与「单个生成」中的设置保持一致；长度跟随右上角长度设置（当前 <b id="b-len-hint">16 位</b>）。</div></div>' +
       '<button class="btn btn-primary" id="b-run">批量生成</button>' +
       '<div id="b-result" style="margin-top:16px"></div>' +
       '</div>' +
       '</div>';
 
-    $$('.tabs button').forEach(function (btn) {
+    $$('.tabs button[data-tab]').forEach(function (btn) {
       btn.onclick = function () {
-        $$('.tabs button').forEach(function (b) { b.classList.toggle('active', b === btn); });
+        $$('.tabs button[data-tab]').forEach(function (b) { b.classList.toggle('active', b === btn); });
         $('#tab-single').style.display = btn.dataset.tab === 'single' ? '' : 'none';
         $('#tab-batch').style.display = btn.dataset.tab === 'batch' ? '' : 'none';
       };
     });
+
+    /* ---- 长度设置弹层 ---- */
+    $('#g-len-btn').onclick = function (e) {
+      e.stopPropagation();
+      var pop = $('#g-len-pop');
+      var willShow = pop.style.display === 'none';
+      pop.style.display = willShow ? '' : 'none';
+      if (willShow) refreshLenUI();
+    };
+    $('#g-len-close').onclick = function () { $('#g-len-pop').style.display = 'none'; };
+    $$('#g-len-chips .chip').forEach(function (c) {
+      c.onclick = function () { applyLen(parseInt(c.dataset.len, 10)); };
+    });
+    $('#g-len-custom').onchange = function () {
+      var v = parseInt(this.value, 10);
+      if (!isFinite(v) || v < Keygen.MIN_LEN || v > Keygen.MAX_LEN) {
+        UI.toast('长度需为 ' + Keygen.MIN_LEN + '–' + Keygen.MAX_LEN + ' 之间的整数', 'err');
+        this.value = Keygen.getLen();
+        return;
+      }
+      applyLen(v);
+    };
+    $('#g-len-reset').onclick = function () { applyLen(Keygen.DEFAULTS.len); };
 
     $('#g-fill-demo').onclick = function () {
       $('#g-udid').value = '00008020-001A2C3E1E44801E';
       $('#g-udid').focus();
     };
 
-    $('#g-run').onclick = function () {
-      var input = $('#g-udid');
-      var field = input.closest('.field');
-      field.classList.remove('has-error');
-      var udid = input.value.trim();
-      if (!udid) {
-        field.classList.add('has-error');
-        field.querySelector('.field-error').textContent = '请输入 UDID';
-        return;
-      }
-      var opts = { bundle: $('#g-bundle').value, product: $('#g-product').value, prefix: $('#g-prefix').value };
-      lastR = Keygen.compute(udid, opts);
-      lastNote = $('#g-note').value.trim();
-      var saved = $('#g-autosave').checked;
-      if (saved) saveGenEntry(lastR, lastNote);
-
-      $('#g-result').innerHTML =
-        '<div class="card result-card card-pad">' +
-        '<div class="card-title">生成结果 <span class="sub" id="g-save-state">' + (saved ? '已保存到授权记录' : '未保存') + '</span></div>' +
-        codeDisplayHtml(lastR.code) +
-        '<div style="font-size:12px;color:var(--text-3);margin:10px 0 14px">有效长度 12 位十六进制（48 bit）· 绑定 UDID <span class="cell-mono">' + escapeHtml(udid) + '</span></div>' +
-        pipelineHtml(lastR) +
-        (saved ? '' : '<div style="margin-top:14px"><button class="btn btn-default" id="g-save">保存到授权记录</button></div>') +
-        '</div>';
-
-      if (!saved) {
-        $('#g-save').onclick = function () {
-          saveGenEntry(lastR, lastNote);
-          $('#g-save-state').textContent = '已保存到授权记录';
-          $('#g-save').remove();
-          UI.toast('已保存到授权记录', 'ok');
-        };
-      }
-    };
+    $('#g-run').onclick = function () { runGenerate($('#g-autosave').checked, false); };
 
     /* ---- 批量 ---- */
     var batchResults = [];
@@ -323,8 +442,7 @@
       var raw = $('#b-udids').value;
       var lines = raw.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 200);
       if (!lines.length) { UI.toast('请输入至少一个 UDID', 'err'); return; }
-      var opts = { bundle: $('#g-bundle').value, product: $('#g-product').value, prefix: $('#g-prefix').value };
-      batchResults = lines.map(function (udid) { return Keygen.compute(udid, opts); });
+      batchResults = lines.map(function (udid) { return Keygen.compute(udid, curOpts()); });
 
       var rows = batchResults.map(function (r, i) {
         return '<tr><td class="cell-mono" style="width:36px;color:var(--text-3)">' + (i + 1) + '</td>' +
@@ -335,6 +453,7 @@
 
       $('#b-result').innerHTML =
         '<div class="card"><div class="card-pad" style="padding-bottom:0"><div class="card-title">批量结果（' + batchResults.length + ' 条）' +
+        '<span class="sub">数据段 ' + Keygen.getLen() + ' 位</span>' +
         '<button class="btn btn-default btn-sm" id="b-save-all">全部保存到授权记录</button></div></div>' +
         '<div class="table-wrap"><table class="table"><thead><tr><th></th><th>UDID</th><th>授权码</th><th style="text-align:right">操作</th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table></div></div>';
@@ -345,21 +464,25 @@
         $('#b-save-all').remove();
       };
     };
+
+    refreshLenUI();
   };
 
   /* ============================================================
      授权码验证
      ============================================================ */
   PAGES.verifier = function () {
+    var curLen = Keygen.getLen();
+    var curGroups = Math.ceil(curLen / 4);
     $('#content').innerHTML =
-      '<div class="page-head"><h2>授权码验证</h2><p>复刻原版归一化比对：去除短横线、统一大写后逐字符比较（对应二进制 0x9414 处的 isEqualToString）。</p></div>' +
+      '<div class="page-head"><h2>授权码验证</h2><p>复刻原版归一化比对：去除短横线、统一大写后逐字符比较（对应二进制 0x9414 处的 isEqualToString）；并按授权码自身数据段长度自适应计算期望值，任意长度均可验证。</p></div>' +
       '<div class="grid grid-sidebar">' +
       '<div class="card card-pad">' +
       '<div class="field"><label class="field-label">设备 UDID<span class="req">*</span></label>' +
       '<input class="input mono" id="v-udid" placeholder="例如 00008020-001A2C3E1E44801E"><div class="field-error"></div></div>' +
       '<div class="field"><label class="field-label">授权码<span class="req">*</span></label>' +
-      '<input class="input mono" id="v-code" placeholder="MUZI-MUTOOL-AAAA-BBBB-CCCC-DDDD" style="letter-spacing:0.06em"><div class="field-error"></div>' +
-      '<div class="field-hint">大小写与短横线不敏感，可粘贴任意格式。</div></div>' +
+      '<input class="input mono" id="v-code" placeholder="' + escapeHtml(formatSample(curLen)) + '" style="letter-spacing:0.06em"><div class="field-error"></div>' +
+      '<div class="field-hint">大小写与短横线不敏感，可粘贴任意格式；数据段位数不限，按码自身长度比对。</div></div>' +
       '<div class="field"><label class="field-label">备注</label><input class="input" id="v-note" placeholder="选填"></div>' +
       '<button class="btn btn-primary" id="v-run">' + ICONS.shield + ' 开始验证</button>' +
       '<div id="v-result"></div>' +
@@ -369,7 +492,8 @@
       '<div class="kv-row"><span class="k">HMAC 密钥</span><span class="v">' + escapeHtml(Keygen.KEY) + '</span></div>' +
       '<div class="kv-row"><span class="k">默认 Bundle</span><span class="v">' + escapeHtml(Keygen.DEFAULTS.bundle) + '</span></div>' +
       '<div class="kv-row"><span class="k">归一化规则</span><span class="v" style="font-family:var(--sans);font-size:12.5px">去 "-" · 转大写</span></div>' +
-      '<div class="kv-row"><span class="k">格式</span><span class="v" style="font-family:var(--sans);font-size:12.5px">MUZI-MUTOOL-AAAA-BBBB-CCCC-DDDD</span></div>' +
+      '<div class="kv-row"><span class="k">当前长度设置</span><span class="v" style="font-family:var(--sans);font-size:12.5px">' + curLen + ' 位（' + curGroups + ' 组）· 可在生成页右上角修改</span></div>' +
+      '<div class="kv-row"><span class="k">格式</span><span class="v" style="font-family:var(--sans);font-size:12.5px">' + escapeHtml(formatSample(curLen)) + '</span></div>' +
       '</div>' +
       '<div class="callout warn">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>' +
@@ -391,6 +515,12 @@
       var u = Auth.current();
       Store.addLog({ type: 'verify', udid: udid, code: code, result: res.ok ? 'ok' : 'fail', operator: u.username });
 
+      var adaptiveRow = res.lenAdaptive
+        ? '<div class="kv-row"><span class="k">长度自适应</span><span class="v match" style="font-family:var(--sans);font-size:12.5px">该码数据段为 ' + res.bodyLen + ' 位（与当前设置 ' + Keygen.getLen() + ' 位不同），已按自身长度计算期望值比对</span></div>'
+        : (res.bodyLen && res.bodyLen !== Keygen.getLen()
+          ? '<div class="kv-row"><span class="k">长度</span><span class="v" style="font-family:var(--sans);font-size:12.5px">该码数据段 ' + res.bodyLen + ' 位（当前设置 ' + Keygen.getLen() + ' 位）</span></div>'
+          : '');
+
       $('#v-result').innerHTML =
         '<div class="verify-banner ' + (res.ok ? 'ok' : 'fail') + '">' +
         '<span class="v-icon">' + (res.ok ? ICONS.check : ICONS.x) + '</span>' +
@@ -401,6 +531,7 @@
         '<div class="kv-row"><span class="k">归一化输入</span><span class="v ' + (res.ok ? 'match' : 'mismatch') + '">' + escapeHtml(res.inputNorm || '（空）') + '</span></div>' +
         '<div class="kv-row"><span class="k">期望授权码</span><span class="v">' + escapeHtml(res.expectedCode) + '</span></div>' +
         '<div class="kv-row"><span class="k">归一化期望</span><span class="v ' + (res.ok ? 'match' : 'mismatch') + '">' + escapeHtml(res.expectedNorm) + '</span></div>' +
+        adaptiveRow +
         '<div class="kv-row"><span class="k">判定</span><span class="v ' + (res.ok ? 'match' : 'mismatch') + '" style="font-family:var(--sans)">' + (res.ok ? '相等 → 通过' : '不相等 → 未通过') + '</span></div>' +
         '</div>';
     };
