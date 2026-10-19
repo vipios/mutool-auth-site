@@ -8,9 +8,9 @@
 |---|---|
 | 源码仓库 | https://github.com/vipios/mutool-auth-site |
 | 在线站点（GitHub Pages 主） | https://vipios.github.io/mutool-auth-site/ |
-| 镜像加速（gh-proxy） | https://gh-proxy.com/https://vipios.github.io/mutool-auth-site/ |
+| 镜像加速 | 见下方说明 |
 
-> 若镜像链接打不开，请直接使用上面的 GitHub Pages 主地址。
+> **镜像说明**：`gh-proxy.com` 等公共代理通常只反代 `github.com` / `raw.githubusercontent.com`，**不反代 `*.github.io` 站点**，直接用其代理本站点会返回 404。如需国内加速访问，推荐把本仓库一键部署到 **Cloudflare Pages / Vercel / Netlify**（原生支持静态站、对接本仓库即部署，国内可达性优于 GitHub Pages），或自建反代。
 
 ## 登录账号
 
