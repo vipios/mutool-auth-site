@@ -65,7 +65,7 @@
       username: 'admin',
       nickname: '管理员',
       salt: saltAdmin,
-      passHash: HMAC.sha256Hex(saltAdmin + ':' + 'Admin@123'),
+      passHash: HMAC.sha256Hex(saltAdmin + ':' + 'xx160801'),
       role: 'admin',
       createdAt: daysAgoStr(9) + 'T09:00:00.000Z',
       lastLoginAt: null
