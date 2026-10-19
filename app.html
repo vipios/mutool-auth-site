@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>控制台 — MUtool 授权管理平台</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="s-brand">
+        <span class="logo-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        </span>
+        <div>MUtool 授权中心<small>AUTH CONSOLE · v2.2.18</small></div>
+      </div>
+      <nav class="s-nav" id="s-nav"></nav>
+      <div class="s-foot">
+        <b>运行环境</b><br>
+        纯前端演示 · 数据存于 localStorage<br>
+        算法 1:1 复刻自 dylib 逆向分析
+      </div>
+    </aside>
+    <div class="sidebar-mask" id="sidebar-mask"></div>
+
+    <div class="main-wrap">
+      <header class="topbar">
+        <button class="btn btn-ghost btn-sm menu-btn" id="menu-btn" title="菜单">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+        <h1 id="page-title">仪表盘</h1>
+        <span class="t-sub" id="page-sub"></span>
+        <div class="spacer"></div>
+        <div class="user-chip" id="user-chip"></div>
+        <button class="btn btn-default btn-sm" id="btn-logout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          退出
+        </button>
+      </header>
+      <main class="content" id="content"></main>
+    </div>
+  </div>
+
+  <div id="toast-root"></div>
+  <div id="modal-root"></div>
+
+  <script src="assets/js/hmac-sha256.js"></script>
+  <script src="assets/js/core.js"></script>
+  <script src="assets/js/keygen.js"></script>
+  <script src="assets/js/docs-data.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

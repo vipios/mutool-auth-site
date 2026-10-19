@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 / 注册 — MUtool 授权管理平台</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <div class="auth-page">
+    <!-- 左侧品牌区 -->
+    <aside class="auth-brand">
+      <div class="glow"></div>
+      <div class="auth-logo">
+        <span class="logo-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        </span>
+        MUtool 授权管理平台
+      </div>
+      <div class="auth-hero">
+        <h1>授权码生成 · 验证 · 管理<br>一体化 Web 控制台</h1>
+        <p>基于 MUtool (roothide) 2.2.18 授权机制完整复刻：HMAC-SHA256 派生、一机一码绑定、归一化比对，全部逻辑在浏览器本地运行。</p>
+        <div class="auth-features">
+          <div class="auth-feature">
+            <span class="f-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></span>
+            <div><b>授权码生成器</b><span>输入 UDID，按原版算法离线产出 MUZI-MUTOOL-AAAA-BBBB-CCCC-DDDD 格式授权码，支持单个与批量。</span></div>
+          </div>
+          <div class="auth-feature">
+            <span class="f-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg></span>
+            <div><b>在线验证器</b><span>复刻归一化比对规则：大小写、短横线不敏感，实时给出期望值与判定详情。</span></div>
+          </div>
+          <div class="auth-feature">
+            <span class="f-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            <div><b>用户与权限管理</b><span>注册登录体系 + 管理员后台：用户列表、角色切换、授权记录审计与 CSV 导出。</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="auth-meta">算法常量：HMAC-SHA256 · Key: MuziSource-Auth-2026-v1-Secret-Key · Bundle: com.muzi.mutool<br>本平台为逆向机制研究演示环境，数据仅存储于本地浏览器。</div>
+    </aside>
+
+    <!-- 右侧表单区 -->
+    <main class="auth-panel">
+      <div class="auth-box" id="auth-box"></div>
+    </main>
+  </div>
+
+  <div id="toast-root"></div>
+  <div id="modal-root"></div>
+
+  <script src="assets/js/hmac-sha256.js"></script>
+  <script src="assets/js/core.js"></script>
+  <script src="assets/js/keygen.js"></script>
+  <script src="assets/js/index-page.js"></script>
+</body>
+</html>
